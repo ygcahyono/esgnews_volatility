@@ -1,5 +1,6 @@
 # Domestic Preference
-# something
+# ignore result for a while still developing
+*.png 
 *.csv
 *.xlsx
 .DS_Store
