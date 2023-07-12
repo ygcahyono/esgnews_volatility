@@ -29,7 +29,7 @@ def func_garch_train_test_split(validation = False, threshold = 24):
     '''
     '''
     train_rows = .7
-    df = read_csv('../Data/1.3-FTSE_Monthly_ESG_Volatility_Final.csv')
+    df = read_csv('../data/1.3-FTSE_Monthly_ESG_Volatility_Final.csv')
     df = df.rename(columns={'Date_x':'date_key'})
     
     df.date_key = to_datetime(df.loc[:, 'date_key'])
@@ -89,47 +89,6 @@ def min_data_threshold(df, threshold = 24):
 
     return df[df['Total Length'] >= threshold]['Asset'].tolist()
 
-
-# def func_train_test_split(validation = False, threshold = 24):
-#     '''
-#     '''
-#     train_rows = .7
-#     df = read_csv('../Data/1.3-FTSE_Monthly_ESG_Volatility_Final.csv')
-#     df = df.rename(columns={'Date_x':'date_key'})
-    
-#     df.loc[:, 'date_key'] = to_datetime(df.loc[:, 'date_key'])
-#     df.loc[:, 'month_key'] = to_datetime(df.loc[:, 'month_key'])
-#     df.index = df.month_key
-
-#     train_df, valid_df, test_df = DataFrame(), DataFrame(), DataFrame()
-#     asset_lists = df.Asset.unique()
-
-#     for asset in asset_lists:
-#         temp_df = df[df['Asset'] == asset].copy()
-
-#         rows = temp_df.shape[0]
-#         train_len = ceil(rows*train_rows)
-
-#         train_df = concat([temp_df.iloc[:train_len], train_df])
-#         if validation:
-#             valid_len = int(rows*.2)
-
-#             valid_df = concat([temp_df.iloc[train_len:(train_len+valid_len)], valid_df])
-#             valid_df = concat([temp_df.iloc[(train_len+valid_len):], valid_df])
-
-#         else:
-#             test_df = concat([temp_df.iloc[train_len:], test_df])
-
-#     master_df = count_train_test(train_df, test_df)
-#     used_assets = min_data_threshold(master_df, threshold = threshold)
-
-#     train_df = train_df[train_df.Asset.isin(used_assets)]
-#     # valid_df = valid_df[valid_df.Asset.isin(used_assets)]
-#     test_df = test_df[test_df.Asset.isin(used_assets)]
-
-#     return train_df, valid_df, test_df
-
-
 def compile_train_test_garch(train_df, test_df, sample = True, base_params = True):
     '''
     '''
@@ -181,7 +140,7 @@ def func_train_test_split(validation = False, threshold = 24):
     '''
     '''
     train_rows = .7
-    df = read_csv('../Data/1.3-FTSE_Monthly_ESG_Volatility_Final.csv')
+    df = read_csv('../data/1.3-FTSE_Monthly_ESG_Volatility_Final.csv')
     df = df.rename(columns={'Date_x':'date_key'})
     
     df.date_key = to_datetime(df.loc[:, 'date_key'])
