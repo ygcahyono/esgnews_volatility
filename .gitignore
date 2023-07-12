@@ -2,6 +2,8 @@
 *.csv
 *.xlsx
 .DS_Store
+*.gdoc
+*.gsheet
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
