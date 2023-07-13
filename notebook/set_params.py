@@ -114,3 +114,40 @@ def func_train_test_split(validation = False, threshold = 24):
     test_df = test_df[test_df.Asset.isin(used_assets)]
 
     return train_df, valid_df, test_df
+
+
+def series_to_supervised(data, n_in=1, n_out=1, target = 'y',dropnan=True):
+    '''
+    transform a time series dataset into a supervised learning dataset
+    '''
+    cols = list()
+    colname = data.columns
+    dropcols = [col for col in colname if col not in target]
+    # print('dropping columns:', dropcols)
+    
+    # input sequence (t-n, ... t-1)
+    for i in range(n_in, 0, -1):
+        temp_df = data.shift(i)
+        colname = temp_df.columns + f'_s{i}'
+        temp_df.columns = colname
+        cols.append(temp_df)
+        
+    # forecast sequence (t, t+1, ... t+n)
+    for i in range(0, n_out):
+        cols.append(data.shift(-i))
+        
+    # put it all together
+    agg = concat(cols, axis=1)
+    agg = DataFrame(agg)
+    # drop rows with NaN values
+    if dropnan:
+        agg.dropna(inplace=True)
+        
+    return agg.drop(dropcols, axis=1).values
+
+# split a univariate dataset into train/test sets
+def train_test_split(data, n_test):
+    '''
+    train test split based on refer to the array set, with the same style as the random forest.
+    '''
+    return data[:-n_test, :], data[-n_test:, :]
