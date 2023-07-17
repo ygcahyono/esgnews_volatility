@@ -1,5 +1,14 @@
 from math import ceil
 from pandas import DataFrame, read_csv, concat, to_datetime, merge
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+from statsmodels.tools.tools import add_constant
+
+from datetime import timedelta
+import matplotlib.pyplot as plt
+import pandas as pd
+import warnings
+warnings.filterwarnings('ignore')
+
 
 def count_train_test(train_df, test_df):
     master_df = DataFrame()
@@ -28,7 +37,7 @@ def func_garch_train_test_split(validation = False, threshold = 24):
     '''
     '''
     train_rows = .7
-    df = read_csv('../data/1.3-FTSE_Monthly_ESG_Volatility_Final.csv')
+    df = read_csv('../data/1.3-FTSE_Monthly_ESG_Volatility_Final_v2.csv')
     df = df.rename(columns={'Date_x':'date_key'})
     
     df.date_key = to_datetime(df.loc[:, 'date_key'])
@@ -67,7 +76,7 @@ def func_train_test_split(validation = False, threshold = 24):
     '''
     '''
     train_rows = .7
-    df = read_csv('../data/1.3-FTSE_Monthly_ESG_Volatility_Final.csv')
+    df = read_csv('../data/1.3-FTSE_Monthly_ESG_Volatility_Final_v2.csv')
     df = df.rename(columns={'Date_x':'date_key'})
     
     df.date_key = to_datetime(df.loc[:, 'date_key'])
@@ -151,3 +160,79 @@ def train_test_split(data, n_test):
     train test split based on refer to the array set, with the same style as the random forest.
     '''
     return data[:-n_test, :], data[-n_test:, :]
+
+
+def vif_check():
+
+    merge_all_fill_df = read_csv('../data/1.3-FTSE_Monthly_ESG_Volatility_Final.csv')
+    train_df, valid_df, test_df = func_train_test_split(validation = False)
+    merge_all_fill_df = concat([train_df, test_df])
+    merge_all_fill_df = merge_all_fill_df.dropna()
+
+    cols = [
+        'buzz','ESG','ESGCombined','ESGControversies','EnvironmentalPillar','GovernancePillar','SocialPillar'
+                    ,'CSRStrategy','Community','Emissions','EnvironmentalInnovation','HumanRights','Management','ProductResponsibility'
+                    ,'ResourceUse','Shareholders','Workforce', 'vol_series_daily','vol_series_weekly','vol_series_monthly', 'V^YZ']
+    
+        
+    # version 2
+    cols = ['buzz','ESG','ESGCombined','ESGControversies','EnvironmentalPillar','GovernancePillar','SocialPillar','Community',
+            'EnvironmentalInnovation','Management','ProductResponsibility','Shareholders','Workforce', 'V^YZ']
+
+    
+    merge_all_fill_df = merge_all_fill_df[cols]
+    merge_all_fill_df = add_constant(merge_all_fill_df)
+    vif = DataFrame()
+    vif["VIF Factor"] = [variance_inflation_factor(merge_all_fill_df.values, i) for i in range(merge_all_fill_df.shape[1])]
+    vif["features"] = merge_all_fill_df.columns
+    
+    non_multicollinear_features = vif[vif['VIF Factor'] <= 5.0]
+    
+    return non_multicollinear_features['features'].tolist()
+
+
+def vif_dynamic_check(df):
+    
+    df = add_constant(df)
+    vif = DataFrame()
+    vif["VIF Factor"] = [variance_inflation_factor(df.values, i) for i in range(df.shape[1])]
+    vif["features"] = df.columns
+    
+    non_multicollinear_features = vif[vif['VIF Factor'] <= 5.0]
+    display(vif)
+    
+    return non_multicollinear_features['features'].tolist()
+
+
+class Data_Processing():
+    '''
+    Class to train and infer stock price for one particular stock
+    '''
+    def __init__(self, dt_start, dt_end, df_path = '../data/1.1-FTSE-IDX_VOL30-PRICES_2006-2023.csv'):
+
+        self.start = dt_start
+        self.end = dt_end
+        self.df_path = df_path
+
+
+    def data_last_trading_month(self):
+
+        date_list = []
+
+        df = pd.read_csv(self.df_path)
+        dt_trades = df.loc[:,['Date']]
+        dt_trades.Date = pd.to_datetime(dt_trades.Date)
+        dt_trades.loc[:, 'Month_Key'] = dt_trades.Date.apply(lambda x: x.strftime('%Y-%m-01'))
+        dt_trades.Month_Key = pd.to_datetime(dt_trades.Month_Key)
+
+        for date in dt_trades.Month_Key.unique():
+            temp_df = dt_trades[dt_trades.Month_Key == date].copy()
+            temp_df = temp_df.sort_values(by= 'Date', ascending=True)
+            dt = temp_df.iloc[-1, 0]
+            date_list.append(dt)
+
+        return date_list
+
+
+    def data_preprocessing_price():
+        print()
