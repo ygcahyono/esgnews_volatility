@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import statsmodels.api as sm
 import warnings
+import sys
 
 warnings.filterwarnings('ignore')
 
@@ -34,7 +35,7 @@ class Data_Processing():
         self.validation = validation
         self.threshold = threshold
 
-    def count_train_test(train_df, test_df):
+    def count_train_test(self, train_df, test_df):
         master_df = pd.DataFrame()
 
         assets = train_df.Asset.unique().tolist()
@@ -52,7 +53,7 @@ class Data_Processing():
 
         return master_df
     
-    def min_data_threshold(df, threshold = 24):
+    def min_data_threshold(self, df, threshold = 24):
 
         return df[df['Total Length'] >= threshold]['Asset'].tolist()
 
@@ -137,7 +138,6 @@ class Data_Processing():
         price_df = price_df[price_df.Date.isin(self.date_list)].reset_index(drop=True)
 
         self.price_df = price_df
-        # month_df.to_csv('files/1.1-FTSE_VOL30-MONTHLY-PRICES_2006-2023.csv', index=None)
 
 
     def data_preprocessing_esg(self):
@@ -262,7 +262,7 @@ class Run_Algorithms():
     '''
 
 
-    def __init__(self, train_df, test_df, algorithms,
+    def __init__(self, train_df, test_df, algorithms = 'HAR',
                  vif_factor = 5, sample = True, features = 'm1', outputs = False, cap = False):
         
         self.features = features
@@ -272,6 +272,18 @@ class Run_Algorithms():
         self.vif_factor = vif_factor
         self.outputs = outputs
         self.cap = cap
+        self.sample = sample
+
+    def get_asset_name(self):
+
+        # sys.path.append('../data')
+
+        coverage_df = pd.read_csv('../data/coverage_dataframe.csv')
+        coverage_df.PermID = coverage_df.PermID.astype(int)
+        coverage_df = coverage_df[['PermID', 'Name']]
+        coverage_df = coverage_df.rename(columns={'PermID':'Asset'})
+
+        return coverage_df
 
     def vif_check(self, feature_version = 2):
 
@@ -280,7 +292,7 @@ class Run_Algorithms():
         vif_factor = self.vif_factor
         
         merge_df = pd.concat([train_df, test_df])
-        merge_df = pd.merge_df.dropna()
+        merge_df = merge_df.dropna()
 
         cols = self.features_selections(features = 'm3', feature_version = feature_version)
 
@@ -302,6 +314,7 @@ class Run_Algorithms():
             assets = [4295894970, 8589934212]
 
         self.assets = assets
+        return assets
 
     def features_selections(self, features = 'm1', feature_version = 2):
         '''
@@ -328,7 +341,8 @@ class Run_Algorithms():
         else:
             cols = self.vif_check(feature_version = feature_version)
 
-            self.cols = cols
+        self.cols = cols
+        return cols
 
     def vis_line_plot_results(y_pred, y_test, algorithms, name = 'BARCLAYS', r = 1, features = 'm1'):
 
@@ -341,17 +355,22 @@ class Run_Algorithms():
         plt.savefig(f'../outputs/{algorithms}-{features}/{str(r+1).zfill(3)}-{algorithms}-{name}.png')
         plt.close()
 
-    def onetime_forward_validation(self, train_df, test_df, assets, cols, algorithms, cap = False):
+    def onetime_forward_validation(self, train_df, test_df, cap = False):
 
         outputs = self.outputs
         features = self.features
+        sample = self.sample
+        algorithms = self.algorithms
+        
+        assets = self.asset_selections(sample)
+        cols = self.features_selections(features = features)
+        coverage_df = self.get_asset_name()
 
-        if algorithms == 'OLS':
-            MODEL = OLS
+        mresults = pd.DataFrame()
 
         for r, asset in enumerate(assets): 
-
-            name = train_df[train_df['Asset'] == asset].iloc[0,-1]
+            
+            name = coverage_df[coverage_df.Asset == asset].iloc[0, 1]
 
             df_train = train_df[train_df.Asset == asset][cols].dropna()
             df_test = test_df[test_df.Asset == asset][cols].dropna()
@@ -365,13 +384,15 @@ class Run_Algorithms():
             
             y_train = df_train['V^YZ']
             y_test = df_test['V^YZ']
-            
+
+            # if algorithms == 'HAR':
+            # deactivate the if else of HAR
             X_train = sm.add_constant(X_train)
             X_test.loc[:, 'const'] = 1
             X_test = X_test[X_train.columns]
 
             # Fit the model
-            model = MODEL(y_train, X_train)
+            model = OLS(y_train, X_train)
             model_fit = model.fit()
 
             # display(X_test, X_train)
@@ -384,7 +405,8 @@ class Run_Algorithms():
             mresult = pd.DataFrame({
                 'Asset': asset,
                 'Name': name,
-                'Model': algo,
+                'Model': algorithms,
+                'Features': features.upper(),
                 'Test Size': test_size,
                 'MSE^3':mse_million
                         }
@@ -405,13 +427,15 @@ class Run_Algorithms():
         '''
         '''
 
-        assets = self.assets
-        cols = self.cols
         train_df = self.train_df
         test_df = self.test_df
         algorithms = self.algorithms
-        cap = self.cap
 
-        mresults = self.onetime_forward_validation(train_df, test_df, assets, cols, algorithms, cap)
+        train_df.Asset = train_df.Asset.astype(int)
+        test_df.Asset = test_df.Asset.astype(int)
+
+        if algorithms == 'HAR':
+
+            mresults = self.onetime_forward_validation(train_df, test_df)
 
         return mresults
