@@ -1,6 +1,12 @@
 from arch import arch_model
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 
+import time
+
+# Method #3 Regularisation Model
+from sklearn.linear_model import ElasticNet
+from sklearn.ensemble import RandomForestRegressor
+
 from datetime import timedelta
 from numpy import asarray, log1p, expm1
 from numpy import number
@@ -39,6 +45,42 @@ def detect_outliers_iqr(values):
     upper_bound = Q3 + 1.5 * IQR
     # Return a boolean array: True if the value is an outlier, False otherwise
     return lower_bound, upper_bound
+
+def series_to_supervised(data, n_in=1, n_out=1, target = 'y',dropnan=True):
+    '''
+    transform a time series dataset into a supervised learning dataset
+    '''
+    cols = list()
+    colname = data.columns
+    dropcols = [col for col in colname if col not in target]
+    # print('dropping columns:', dropcols)
+    
+    # input sequence (t-n, ... t-1)
+    for i in range(n_in, 0, -1):
+        temp_df = data.shift(i)
+        colname = temp_df.columns + f'_s{i}'
+        temp_df.columns = colname
+        cols.append(temp_df)
+        
+    # forecast sequence (t, t+1, ... t+n)
+    for i in range(0, n_out):
+        cols.append(data.shift(-i))
+        
+    # put it all together
+    agg = pd.concat(cols, axis=1)
+    agg = pd.DataFrame(agg)
+    # drop rows with NaN values
+    if dropnan:
+        agg.dropna(inplace=True)
+        
+    return agg.drop(dropcols, axis=1).values
+
+# split a univariate dataset into train/test sets
+def spv_train_test_split(data, n_test):
+    '''
+    train test split based on refer to the array set, with the same style as the random forest.
+    '''
+    return data[:-n_test, :], data[-n_test:, :]
 
 class Data_Processing():
     '''
@@ -308,6 +350,67 @@ class Run_Algorithms():
         coverage_df = coverage_df.rename(columns={'PermID':'Asset'})
 
         return coverage_df
+    
+    # fit an random forest model and make a one step prediction
+    def elasticnet_forecast(self, train, testX, l1_ratio = 0.25):
+        # transform list into array
+        train = asarray(train)
+        # split into input and output columns
+        trainX, trainy = train[:, :-1], train[:, -1]
+        # fit model
+        model = ElasticNet(l1_ratio= l1_ratio)
+        model.fit(trainX, trainy)
+        # make a one-step prediction
+        yhat = model.predict([testX])
+        return yhat[0]
+
+    # fit an random forest model and make a one step prediction
+    def random_forest_forecast(self, train, testX):
+        # transform list into array
+        train = asarray(train)
+        # split into input and output columns
+        trainX, trainy = train[:, :-1], train[:, -1]
+        # fit model
+        model = RandomForestRegressor(n_estimators=1000)
+        model.fit(trainX, trainy)
+        # make a one-step prediction
+        yhat = model.predict([testX])
+        return yhat[0]
+    
+    # walk-forward validation for univariate data
+    def walk_forward_validation(self, data, n_test, algorithm, verbose = True):
+        predictions = list()
+        # split dataset
+        train, test = spv_train_test_split(data, n_test)
+        # seed history with training dataset
+        history = [x for x in train]
+        # print(history)
+        # step over each time-step in the test set
+        
+        for i in range(len(test)):
+            # split test row into input and output columns
+            testX, testy = test[i, :-1], test[i, -1]
+
+            if algorithm == 'EN':
+                # fit model on history and make a prediction
+                yhat = self.elasticnet_forecast(history, testX)
+
+            elif algorithm == 'RF':
+                # fit model on history and make a prediction
+                yhat = self.random_forest_forecast(history, testX)
+
+            # store forecast in list of predictions
+            predictions.append(yhat)
+            # add actual observation to history for the next loop
+            history.append(test[i])
+            # summarize progress
+            # print('>expected=%.4f, predicted=%.4f' % (testy, yhat))
+            
+        # estimate prediction error
+        error = mean_squared_error(test[:, -1], predictions) * 10**3
+        # error = mean_absolute_error(test[:, -1], predictions)
+        
+        return test[:, -1], predictions, error
 
     def vif_check(self, feature_version = 2):
 
@@ -335,7 +438,8 @@ class Run_Algorithms():
 
         assets = self.train_df.Asset.unique().tolist()
         if sample: 
-            assets = [4295894970, 8589934212]
+            # 3rd and 4th most volatile stocks in FTSE 2006 to 2022
+            assets = [8589934212, 8589934254] 
 
         self.assets = assets
         return assets
@@ -368,7 +472,7 @@ class Run_Algorithms():
         self.cols = cols
         return cols
 
-    def vis_line_plot_results(y_pred, y_test, algorithms, name = 'BARCLAYS', r = 1, features = 'm1'):
+    def vis_line_plot_results(self, y_pred, y_test, algorithms, name, r, features):
 
         plt.figure(figsize=(10,4))
         true, = plt.plot(y_test)
@@ -448,6 +552,25 @@ class Run_Algorithms():
         y_pred = pd.Series(y_pred, index=indices)
 
         return y_test, y_pred, test_size
+    
+    def run_supervised(self, train_df, test_df, asset, cols, name, 
+                       algorithm, 
+                       cap = False, target = 'V^YZ', test_perc = .3):
+
+        df_train = train_df[train_df.Asset == asset][cols].dropna()
+        df_test = test_df[test_df.Asset == asset][cols].dropna()
+        indices = test_df[test_df.Asset == asset].index
+        # display(df_train)
+        df_merge = pd.concat([df_train, df_test])
+        df_merge = series_to_supervised(df_merge, n_in=3, target= [target])
+        test_size = int(df_merge.shape[0] * test_perc)
+        
+        print(f'Execute Training and Walk Forward Testing for ({name}) for {test_size} times..')
+        start_time = time.time()
+        y_test, y_pred, mse = self.walk_forward_validation(df_merge, test_size, algorithm)
+        print("---"*10, "%s seconds |"%(time.time() - start_time), 'MAE: %.3f'%mse, "---"*10)
+
+        return y_test, y_pred, mse, test_size
 
 
     def go_iterate_assets(self, train_df, test_df, cap = False):
@@ -466,25 +589,30 @@ class Run_Algorithms():
         for r, asset in enumerate(assets): 
             
             name = coverage_df[coverage_df.Asset == asset].iloc[0, 1]
-            
 
             if algorithms == 'HAR':
                 test_size = test_df.shape[0]
                 y_test, y_pred = self.run_ols(train_df, test_df, asset, cols)
+                mse = mean_squared_error(y_test,y_pred)*10**3
 
             elif algorithms == 'GARCH':
                 # print('here')
                 y_test, y_pred, test_size = self.run_garch(train_df, test_df, asset)
+                mse = mean_squared_error(y_test,y_pred)*10**3
 
-            
-            mse_million = mean_squared_error(y_test,y_pred)*10**3
+            elif algorithms == 'EN':
+                y_test, y_pred, mse, test_size = self.run_supervised(train_df, test_df, asset, cols, name, algorithms)
+
+            elif algorithms == 'RF':
+                y_test, y_pred, mse, test_size = self.run_supervised(train_df, test_df, asset, cols, name, algorithms)
+
             mresult = pd.DataFrame({
                 'Asset': asset,
                 'Name': name,
                 'Model': algorithms,
                 'Features': features.upper(),
                 'Test Size': test_size,
-                'MSE^3':mse_million
+                'MSE^3':mse
                         }
                 , index=[r]
             )
@@ -492,7 +620,7 @@ class Run_Algorithms():
             mresults = pd.concat([mresults, mresult])
 
             if outputs: 
-                self.vis_line_plot_results(y_pred, y_test, model = 'HAR', features = features, name = name, r = r)
+                self.vis_line_plot_results(y_pred, y_test, algorithms, name, r, features)
 
         return mresults
 
