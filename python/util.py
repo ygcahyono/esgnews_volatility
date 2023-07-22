@@ -654,6 +654,6 @@ class Run_Algorithms():
 
         mresults = self.go_iterate_assets(train_df, test_df)
         if res_export:
-            mresults.to_csv(f'../Results/{str(no_algo).zfill(2)}-{algorithms}-{features}.csv', index=None)
+            mresults.to_csv(f'../results/{str(no_algo).zfill(2)}-{algorithms}-{features}.csv', index=None)
 
         return mresults
