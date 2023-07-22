@@ -325,20 +325,29 @@ class Data_Processing():
 
 class Run_Algorithms():
     '''
+    Initialize parameters for the class
+    :param train_df: train's dataset
+    :param test_df: test's dataset
+    :param algorithms: algorithm: GARCH, HAR, EN, RF
+    :param features: "m1", "m2", or "m3"
+    :param cap: caping the nonsense prediction value. i.e. below 0 or ultra-high spike
+    :param plot_export: export plot to "outputs" folder
+    :param res_export: export result of algo to results file
     '''
 
 
     def __init__(self, train_df, test_df, algorithms = 'HAR',
-                 vif_factor = 5, sample = True, features = 'm1', outputs = False, cap = False):
-        
-        self.features = features
+                 vif_factor = 5, sample = True, features = 'm1', cap = False, plot_export = False, res_export = False):
+
         self.train_df = train_df
-        self.test_df = test_df
+        self.test_df = test_df        
         self.algorithms = algorithms 
         self.vif_factor = vif_factor
-        self.outputs = outputs
-        self.cap = cap
         self.sample = sample
+        self.features = features
+        self.cap = cap
+        self.plot_export = plot_export
+        self.res_export = res_export
 
     def get_asset_name(self):
 
@@ -575,7 +584,7 @@ class Run_Algorithms():
 
     def go_iterate_assets(self, train_df, test_df, cap = False):
 
-        outputs = self.outputs
+        plot_export = self.plot_export
         features = self.features
         sample = self.sample
         algorithms = self.algorithms
@@ -596,7 +605,7 @@ class Run_Algorithms():
                 mse = mean_squared_error(y_test,y_pred)*10**3
 
             elif algorithms == 'GARCH':
-                # print('here')
+                # Notice Garch did not take any cols as an input parameter.
                 y_test, y_pred, test_size = self.run_garch(train_df, test_df, asset)
                 mse = mean_squared_error(y_test,y_pred)*10**3
 
@@ -619,7 +628,7 @@ class Run_Algorithms():
 
             mresults = pd.concat([mresults, mresult])
 
-            if outputs: 
+            if plot_export: 
                 self.vis_line_plot_results(y_pred, y_test, algorithms, name, r, features)
 
         return mresults
@@ -628,14 +637,23 @@ class Run_Algorithms():
         '''
         '''
 
+        variables = {'GARCH': 1
+                     ,'HAR': 2
+                     ,'EN': 3
+                     ,'RF': 4}
+
         train_df = self.train_df
         test_df = self.test_df
+        features = self.features
         algorithms = self.algorithms
+        no_algo = variables[algorithms]
+        res_export = self.res_export
 
         train_df.Asset = train_df.Asset.astype(int)
         test_df.Asset = test_df.Asset.astype(int)
 
         mresults = self.go_iterate_assets(train_df, test_df)
-
+        if res_export:
+            mresults.to_csv(f'../Results/{str(no_algo).zfill(2)}-{algorithms}-{features}.csv', index=None)
 
         return mresults
