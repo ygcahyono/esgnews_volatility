@@ -1,3 +1,5 @@
+# adding a feature of daily data
+
 from arch import arch_model
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 
@@ -24,6 +26,7 @@ import numpy as np
 import sys
 
 warnings.filterwarnings('ignore')
+pd.set_option('display.max_columns', 100)
 
 def calculate_iqr(values):
     # Calculate Q1
@@ -89,17 +92,21 @@ class Data_Processing():
     def __init__(self, mt_start, mt_end, 
                  validation = False,
                  threshold = 24,
+                 daily = False, 
+                 train_perc = .7,
                  index_path = '../data/1.1-FTSE-IDX_VOL30-PRICES_2006-2023.csv',
                  price_path = '../data/1.1-FTSE_VOL30-PRICES_2006-2023.csv',
                  esg_path = '../data/1.2-FTSE_ESG_COR_2006-2023.csv'):
 
         self.mt_start = mt_start
         self.mt_end = mt_end
+        self.train_perc = train_perc
         self.index_path = index_path
         self.price_path = price_path
         self.esg_path = esg_path
         self.validation = validation
         self.threshold = threshold
+        self.daily = daily
 
     def count_train_test(self, train_df, test_df):
         master_df = pd.DataFrame()
@@ -119,7 +126,12 @@ class Data_Processing():
 
         return master_df
     
-    def min_data_threshold(self, df, threshold = 24):
+    def min_data_threshold(self, df):
+        
+        threshold = self.threshold
+
+        if self.daily:
+            threshold = 360*2 # at least it has 2 years of datapoints.
 
         return df[df['Total Length'] >= threshold]['Asset'].tolist()
 
@@ -198,10 +210,14 @@ class Data_Processing():
         price_df = price_df[select_cols]
         price_df = price_df.dropna()
 
-        price_df.loc[:, 'month_lag1'] = price_df.month_key.apply(lambda x: x - timedelta(days=10))
-        price_df.loc[:, 'month_lag1'] = price_df.month_lag1.apply(lambda x: x.strftime('%Y-%m-01'))
-        price_df.month_lag1 = pd.to_datetime(price_df.month_lag1)
-        price_df = price_df[price_df.Date.isin(self.date_list)].reset_index(drop=True)
+        if self.daily:
+            price_df.loc[:, 'col_merge'] = price_df.Date.apply(lambda x: x - timedelta(days=1))
+            price_df.col_merge = pd.to_datetime(price_df.col_merge)
+        else:
+            price_df.loc[:, 'col_merge'] = price_df.month_key.apply(lambda x: x - timedelta(days=10))
+            price_df.loc[:, 'col_merge'] = price_df.col_merge.apply(lambda x: x.strftime('%Y-%m-01'))
+            price_df.col_merge = pd.to_datetime(price_df.col_merge)
+            price_df = price_df[price_df.Date.isin(self.date_list)].reset_index(drop=True)
 
         self.price_df = price_df
 
@@ -215,23 +231,28 @@ class Data_Processing():
         esg_df.Date = pd.to_datetime(esg_df.Date)
         esg_df = esg_df.drop(['windowTimestamp'], axis=1)
 
-        # set-up month_key column
-        esg_df = esg_df[esg_df.Date.isin(self.date_list)].reset_index(drop=True)
+        if not self.daily:
+            # set-up month_key column
+            esg_df = esg_df[esg_df.Date.isin(self.date_list)].reset_index(drop=True)
+
         esg_df['month_key'] = esg_df.Date.apply(lambda x: x.strftime('%Y-%m-01'))
         esg_df.month_key = pd.to_datetime(esg_df.month_key)
 
         self.esg_df = esg_df
 
-    def func_train_test_split(self, validation = False, threshold = 24):
+    def func_train_test_split(self):
         '''
         '''
-        train_rows = .7
-        df = self.clean_df
-        df = df.rename(columns={'Date_x':'date_key'})
         
-        df.date_key = pd.to_datetime(df.loc[:, 'date_key'])
-        df.month_key = pd.to_datetime(df.loc[:, 'month_key'])
-        df.index = df.month_key
+        validation = self.validation
+        train_rows = self.train_perc
+        df = self.clean_df
+        
+        lag_1, lag_2, lag_3 = 1, 3, 12
+        if self.daily:
+            lag_1, lag_2, lag_3 = 1, 7, 30
+        
+        df.index = df.col_merge
 
         train_df, valid_df, test_df = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
         asset_lists = df.Asset.unique()
@@ -246,9 +267,9 @@ class Data_Processing():
 
             # setting up volatility lag to a dataframe
             vol_df = pd.DataFrame({
-            'vol_series_daily' : temp_df['V^YZ'].shift(1),
-            'vol_series_weekly' : temp_df['V^YZ'].rolling(3).mean().shift(1),
-            'vol_series_monthly' : temp_df['V^YZ'].rolling(12).mean().shift(1)
+            'vol_series_daily' : temp_df['V^YZ'].shift(lag_1),
+            'vol_series_weekly' : temp_df['V^YZ'].rolling(lag_2).mean().shift(1),
+            'vol_series_monthly' : temp_df['V^YZ'].rolling(lag_3).mean().shift(1)
             })
 
             temp_df = pd.merge(temp_df, vol_df, how = 'left', left_index=True, right_index=True)
@@ -266,7 +287,7 @@ class Data_Processing():
 
         
         master_df = self.count_train_test(train_df, test_df) # count the total rows of each assets
-        used_assets = self.min_data_threshold(master_df, threshold= threshold)     # filter out assets that has least data points
+        used_assets = self.min_data_threshold(master_df)     # filter out assets that has least data points
 
         train_df = train_df[train_df.Asset.isin(used_assets)]
         # valid_df = valid_df[valid_df.Asset.isin(used_assets)]
@@ -280,15 +301,25 @@ class Data_Processing():
         self.monthly_last_trading_date()
         self.data_preprocessing_price()
         self.data_preprocessing_esg()
-        merge_df = pd.merge(self.price_df, self.esg_df, how = 'left', left_on = ['month_lag1', 'Asset'],
-                                 right_on = ['month_key', 'Asset'])
-        
-        # output column arrangement
-        merge_df.drop(['month_key_x', 'month_key_y', 'Date_y'], axis = 1, inplace = True)
-        merge_df = merge_df.rename(columns={
-                         'Date_x': 'date_key',
-                         'month_lag1': 'month_key'
-                         })
+
+        if not self.daily:
+            merge_df = pd.merge(self.price_df, self.esg_df, how = 'left', left_on = ['col_merge', 'Asset'],
+                                    right_on = ['month_key', 'Asset'])
+            
+            # output column arrangement
+            merge_df.drop(['month_key_x', 'month_key_y', 'Date_y'], axis = 1, inplace = True)
+            merge_df = merge_df.rename(columns={
+                            'Date_x': 'date_key',
+                            })
+            
+        else:
+            merge_df = pd.merge(self.price_df, self.esg_df, how = 'left', left_on = ['col_merge', 'Asset'],
+                        right_on = ['Date', 'Asset'])
+            merge_df.drop(['month_key_x', 'month_key_y', 'Date_y'], axis = 1, inplace = True)
+            merge_df = merge_df.rename(columns={
+                            'Date_x': 'date_key',
+                            })
+
         self.merge_df = merge_df
 
         return self.merge_df
@@ -299,7 +330,6 @@ class Data_Processing():
         Based on columns that mostly contribute null to the FTSE assets.
         '''
         validation = self.validation
-        threshold = self.threshold
 
         self.merge_data()
 
@@ -318,8 +348,8 @@ class Data_Processing():
 
         self.clean_df = clean_df
 
-        train_df, valid_df, test_df = self.func_train_test_split(validation=validation, threshold=threshold)
-
+        train_df, valid_df, test_df = self.func_train_test_split()
+        
         return clean_df, train_df, valid_df, test_df
 
 
@@ -380,7 +410,7 @@ class Run_Algorithms():
         # split into input and output columns
         trainX, trainy = train[:, :-1], train[:, -1]
         # fit model
-        model = RandomForestRegressor(n_estimators=1000)
+        model = RandomForestRegressor(n_estimators=100, n_jobs = -1)
         model.fit(trainX, trainy)
         # make a one-step prediction
         yhat = model.predict([testX])
@@ -542,7 +572,7 @@ class Run_Algorithms():
         
         for i in range(test_size):
             # train data
-            y_train = y_volatility[:-(test_size-i)]
+            y_train = y_volatility[-(test_size-i):]
             model = arch_model(y_train, p=p, q=q)
             model_fit = model.fit(disp='off')
             # test data
@@ -574,7 +604,7 @@ class Run_Algorithms():
         df_merge = series_to_supervised(df_merge, n_in=3, target= [target])
         test_size = int(df_merge.shape[0] * test_perc)
         
-        print(f'Execute Training and Walk Forward Testing for ({name}) for {test_size} times..')
+        print(f'Execute Training and Walk Forward Testing for ({name}-{str(asset)}) for {test_size} times..')
         start_time = time.time()
         y_test, y_pred, mse = self.walk_forward_validation(df_merge, test_size, algorithm)
         print("---"*10, "%s seconds |"%(time.time() - start_time), 'MAE: %.3f'%mse, "---"*10)
