@@ -488,7 +488,7 @@ class Run_Algorithms():
         preds, = plt.plot(y_pred)
         plt.title(f'{algorithms}-{features}-{name}', fontsize=15)
         plt.legend(['True Volatility', 'Predicted Volatility'], fontsize=9)
-        plt.xticks(rotation=45)
+        plt.xticks(rotation=0)
         plt.savefig(f'../outputs/{algorithms}-{features}/{str(r+1).zfill(3)}-{algorithms}-{name}.png')
         plt.close()
 
@@ -557,7 +557,7 @@ class Run_Algorithms():
             
             y_pred.append(pred)
 
-        indices = test_df[test_df.Asset == asset].index
+        indices = y_test.index
         y_pred = pd.Series(y_pred, index=indices)
 
         return y_test, y_pred, test_size
