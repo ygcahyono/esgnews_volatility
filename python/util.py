@@ -621,6 +621,7 @@ class Run_Algorithms():
         
         assets = self.asset_selections(sample)
         cols = self.features_selections(features = features)
+        print(cols)
         coverage_df = self.get_asset_name()
 
         mresults = pd.DataFrame()
