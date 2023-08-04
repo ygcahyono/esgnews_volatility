@@ -118,7 +118,7 @@ class RunModels():
         return coverage_df
     
     # fit an random forest model and make a one step prediction
-    def elasticnet_forecast(self, train, testX, l1_ratio = 0.25):
+    def elasticnet_forecast(self, train, testX, l1_ratio = 0.5):
 
         # transform list into array
         train = asarray(train)
@@ -127,9 +127,11 @@ class RunModels():
         
         # fit model
         model = ElasticNet(l1_ratio= l1_ratio)
+
         model.fit(trainX, trainy)
         # make a one-step prediction
         yhat = model.predict([testX])
+
         return yhat[0]
 
     # fit an random forest model and make a one step prediction
@@ -139,7 +141,7 @@ class RunModels():
         # split into input and output columns
         trainX, trainy = train[:, :-1], train[:, -1]
         # fit model
-        model = RandomForestRegressor(n_estimators=100, n_jobs = 2)
+        model = RandomForestRegressor(n_estimators=100, n_jobs = 40)
         model.fit(trainX, trainy)
         # make a one-step prediction
         yhat = model.predict([testX])
@@ -150,6 +152,7 @@ class RunModels():
         predictions = list()
         # split dataset
         train, test = spv_train_test_split(data, n_test)
+        indicies = self.indicies
 
         # seed history with training dataset
         history = [x for x in train]
@@ -177,8 +180,13 @@ class RunModels():
         # estimate prediction error
         error = mean_squared_error(test[:, -1], predictions) * 10**3
         # error = mean_absolute_error(test[:, -1], predictions)
+
+        testy = pd.Series(test[:, -1], index = indicies)
+        predy = pd.Series(predictions, index = indicies)
         
-        return test[:, -1], predictions, error
+        # return test[:, -1], predictions, error
+        return testy, predy, error
+        
     
     def sequential_feature_selection(self, cols):
         
@@ -208,22 +216,24 @@ class RunModels():
     def vif_feature_selection(self, feature_version = 2):
 
         train_df = self.train_df
-        test_df = self.test_df
         vif_factor = self.vif_factor
         
-        merge_df = pd.concat([train_df, test_df])
-        merge_df = merge_df.dropna()
-
+        train_df = train_df.dropna()
         cols = self.features_selections(features = 'm3', feature_version = feature_version)
 
-        merge_df = merge_df[cols]
-        merge_df = add_constant(merge_df)
+        train_df = train_df[cols]
+        train_df = add_constant(train_df)
 
         vif = pd.DataFrame()
-        vif['VIF Factor'] = [variance_inflation_factor(merge_df.values, i) for i in range(merge_df.shape[1])]
-        vif['features'] = merge_df.columns
+        vif['VIF Factor'] = [variance_inflation_factor(train_df.values, i) for i in range(train_df.shape[1])]
+        vif['features'] = train_df.columns
         
         features = vif[vif['VIF Factor'] <= vif_factor]['features'].tolist()
+
+        # Check if '4' is in the list
+        if 'V^YZ' not in features:
+            features.append('V^YZ')
+            print("adding variables")
         
         return features
 
@@ -256,29 +266,96 @@ class RunModels():
         # clean_df = self.merge_df.drop(['ResourceUse', 'HumanRights', 'CSRStrategy', 'Emissions'], axis=1)
             if feature_version == 2:
                 # version 2 is after the dropping some columns that have too many missing row values
-                cols = ['buzz','ESG','ESGCombined','ESGControversies','EnvironmentalPillar','GovernancePillar','SocialPillar','Community',
+                cols = ['vol_series_daily', 'vol_series_weekly', 'vol_series_monthly',
+                    'buzz','ESG','ESGCombined','ESGControversies','EnvironmentalPillar','GovernancePillar','SocialPillar','Community',
                         'EnvironmentalInnovation','Management','ProductResponsibility','Shareholders','Workforce', 'V^YZ']
         
         else:            
             # deactivate the vif feature selection and aligning with the sequential feature selection
-            # cols = self.vif_feature_selection(feature_version = feature_version)
+            cols = self.vif_feature_selection(feature_version = feature_version)
 
             # sequential feature selection with basis version 2
-            cols = self.features_selections(features = 'm3', feature_version = 2)
-            cols = self.sequential_feature_selection(cols)
+            # cols = self.features_selections(features = 'm3', feature_version = 2)
+            # cols = self.sequential_feature_selection(cols)
             # print('inside the feature selections:', cols)
 
         self.cols = cols
         return cols
 
-    def vis_line_plot_results(self, y_pred, y_test, algorithms, name, r, features):
+    # def vis_line_plot_results(self, y_pred, y_test, name, r):
 
-        plt.figure(figsize=(10,4))
-        true, = plt.plot(y_test)
-        preds, = plt.plot(y_pred)
-        plt.title(f'{algorithms}-{features}-{name}', fontsize=15)
-        plt.legend(['True Volatility', 'Predicted Volatility'], fontsize=9)
+    #     dictionaries = {
+    #         'EN': 'Elastic Net',
+    #         'RF': 'Random Forest',
+    #         'LSTM': 'Long Short-Term Memory',
+    #         'HAR': 'Heterogeneous AutoRegressive',
+    #         'GARCH': 'Generalised AutoRegressive Conditional Heteroskedasticity'
+    #     }
+
+    #     algorithms = self.algorithms
+    #     features = self.features
+
+    #     plt.figure(figsize=(10,4))
+    #     true, = plt.plot(y_test, alpha = 0.7, color = 'black')
+    #     preds, = plt.plot(y_pred, marker='.')
+
+    #     plt.title(f'{dictionaries[algorithms]} Prediction on "{name}" |Data:{features}|', fontsize=12)
+    #     plt.legend(['True Volatility', 'Predicted Volatility'], fontsize=9)
+
+    #     # Add horizontal grid lines
+    #     plt.grid(axis='y', alpha=0.5)
+
+    #     # Add labels to the axes
+    #     plt.xlabel('Date Key', fontsize=9)
+    #     plt.ylabel('Volatility', fontsize=9)
+    #     plt.xticks(rotation=0)
+
+    #     plt.savefig(f'../outputs/{algorithms}-{features}/{str(r+1).zfill(3)}-{algorithms}-{name}.png')
+    #     plt.close()
+
+    def vis_line_plot_results(self, y_pred, y_test, name, r):
+
+        dictionaries = {
+            'EN': 'Elastic Net',
+            'RF': 'Random Forest',
+            'LSTM': 'Long Short-Term Memory',
+            'HAR': 'Heterogeneous AutoRegressive',
+            'GARCH': 'Generalised AutoRegressive Conditional Heteroskedasticity'
+        }
+
+        algorithms = self.algorithms
+        features = self.features
+
+        # Calculate absolute differences between actual and predicted values
+        diff = np.abs(y_test - y_pred)
+
+        fig, ax1 = plt.subplots(figsize=(10,5))
+
+        # Plot actual and predicted values
+        ax1.plot(y_test, alpha = 0.7, color = 'black')
+        ax1.plot(y_pred, marker='.')
+        ax1.legend(['True Volatility', 'Predicted Volatility'], fontsize=7.5, loc='upper left')
+        ax1.grid(axis='y', alpha=0.5)
+        ax1.set_ylabel('Volatility', fontsize=9)
+        # print(np.min(y_test))
+        ax1.set_ylim([np.min(y_test)-np.min(y_test)*.5, np.max(y_test)+np.max(y_test)*.05]) 
+
+        # Create a second y-axis
+        ax2 = ax1.twinx()
+
+        # Plot differences on the secondary y-axis as a bar chart
+        ax2.bar(y_test.index, diff, color='gray', alpha=0.8, width=1.5)
+        ax2.legend(['Absolute Difference'], fontsize=7.5, loc='upper right')
+        ax2.set_ylabel('Absolute Difference', fontsize=9)
+
+        # Setting y-limits for the second axis to prevent overlap with line plots
+        ax2.set_ylim([0, np.max(diff)*3]) 
+
+        # Set main title
+        plt.title(f'{dictionaries[algorithms]} Prediction on "{name}" [Data:{features}]', fontsize=12)
+
         plt.xticks(rotation=0)
+
         plt.savefig(f'../outputs/{algorithms}-{features}/{str(r+1).zfill(3)}-{algorithms}-{name}.png')
         plt.close()
 
@@ -358,11 +435,10 @@ class RunModels():
                        cap = False, target = 'V^YZ', test_perc = .3):
 
         predict_days = self.predict_days
+        n_in = 3
 
         df_train = train_df[train_df.Asset == asset][cols].dropna()
         df_test = test_df[test_df.Asset == asset][cols].dropna()
-        train_indicies = df_train.index
-        test_indicies = df_test.index
 
         # normalisation
         # scaler = StandardScaler()
@@ -374,9 +450,11 @@ class RunModels():
         # indices = test_df[test_df.Asset == asset].index
         # display(df_train)
         df_merge = pd.concat([df_train, df_test])
-        df_merge = series_to_supervised(df_merge, n_in=3, target= [target])
-        
+        self.indicies = df_merge.iloc[-(predict_days+n_in):-n_in].index
+
+        df_merge = series_to_supervised(df_merge, n_in=n_in, target= [target])
         print(f'Execute Training and Walk Forward Testing for ({name}-{str(asset)}) for {predict_days} times..')
+
         start_time = time.time()
         y_test, y_pred, mse = self.walk_forward_validation(df_merge, predict_days, algorithm)
         print("---"*10, "%s seconds |"%(time.time() - start_time), 'MAE: %.3f'%mse, "---"*10)
@@ -432,7 +510,7 @@ class RunModels():
             mresults = pd.concat([mresults, mresult])
 
             if plot_export: 
-                self.vis_line_plot_results(y_pred, y_test, algorithms, name, r, features)
+                self.vis_line_plot_results(y_pred, y_test, name, r)
 
         return mresults
 
