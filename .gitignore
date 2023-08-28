@@ -6,6 +6,9 @@
 .DS_Store
 *.gdoc
 *.gsheet
+*_old.py
+*.pdf
+*.docx
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
