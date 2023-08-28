@@ -4,11 +4,11 @@
 
 ### Experimentation Notebook Flow:
 
-1. Pull the ESG Data
+1. Pull the ESG Data (Internal API and Library)
 
 > 1-ESG Scores Collection.ipynb
 
-2. Pull the OHLC Price Data
+2. Pull the OHLC Price Data (Internal API and Library)
 
 > 1.1-Price Collection.ipynb (FTSE100 Constituents)
 > 1.1-Price Index Collection.ipynb (FTSE100 Index)
