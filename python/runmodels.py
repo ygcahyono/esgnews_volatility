@@ -49,18 +49,19 @@ def series_to_supervised(data, n_in=1, n_out=1, target = 'y',dropnan=True):
     cols = list()
     colname = data.columns
     dropcols = [col for col in colname if col not in target]
+    df_train = data.iloc[:, :-1].copy()
     
     # input sequence (t-n, ... t-1)
     for i in range(n_in, 0, -1):
-        temp_df = data.shift(i)
-        colname = temp_df.columns + f'_s{i}'
+        temp_df = df_train.shift(i)
+        colname = df_train.columns + f'_s{i}'
         temp_df.columns = colname
         cols.append(temp_df)
         
     # forecast sequence (t, t+1, ... t+n)
     for i in range(0, n_out):
         cols.append(data.shift(-i))
-        
+    
     # put it all together
     agg = pd.concat(cols, axis=1)
     agg = pd.DataFrame(agg)
@@ -141,7 +142,7 @@ class RunModels():
         # split into input and output columns
         trainX, trainy = train[:, :-1], train[:, -1]
         # fit model
-        model = RandomForestRegressor(n_estimators=100, n_jobs = 40)
+        model = RandomForestRegressor(n_estimators = 500, max_features = ceil((len(self.cols)+1) / 3), n_jobs = 40)
         model.fit(trainX, trainy)
         # make a one-step prediction
         yhat = model.predict([testX])
@@ -253,6 +254,17 @@ class RunModels():
         that come from HAR algorithms
         '''
 
+        noise_variable = ['noise_beta_0.0_gamma_0.25',
+        'noise_beta_0.0_gamma_0.5',
+        'noise_beta_0.0_gamma_1.0',
+        'noise_beta_0.5_gamma_0.25',
+        'noise_beta_0.5_gamma_0.5',
+        'noise_beta_0.5_gamma_1.0',
+        'noise_beta_0.75_gamma_0.25',
+        'noise_beta_0.75_gamma_0.5',
+        'noise_beta_0.75_gamma_1.0',
+        'noise_beta_0.9_gamma_0.25']
+
         if features == 'm1':
             cols = ['vol_series_daily', 'vol_series_weekly', 'vol_series_monthly', 'V^YZ']
 
@@ -270,10 +282,37 @@ class RunModels():
                     'buzz','ESG','ESGCombined','ESGControversies','EnvironmentalPillar','GovernancePillar','SocialPillar','Community',
                         'EnvironmentalInnovation','Management','ProductResponsibility','Shareholders','Workforce', 'V^YZ']
         
-        else:            
+        elif features == 'm2':
             # deactivate the vif feature selection and aligning with the sequential feature selection
             cols = self.vif_feature_selection(feature_version = feature_version)
 
+        elif features == 'm4':
+
+            cols = ['vol_series_daily', 'vol_series_weekly', 'vol_series_monthly',
+                'buzz','ESG','ESGCombined','ESGControversies','EnvironmentalPillar','GovernancePillar','SocialPillar','Community',
+                    'EnvironmentalInnovation','Management','ProductResponsibility','Shareholders','Workforce']
+            
+            cols.extend(noise_variable[:1])
+            cols.extend(['V^YZ'])
+
+        elif features == 'm5':
+
+            cols = ['vol_series_daily', 'vol_series_weekly', 'vol_series_monthly',
+                'buzz','ESG','ESGCombined','ESGControversies','EnvironmentalPillar','GovernancePillar','SocialPillar','Community',
+                    'EnvironmentalInnovation','Management','ProductResponsibility','Shareholders','Workforce']
+            
+            cols.extend(noise_variable[:5])
+            cols.extend(['V^YZ'])
+
+        elif features == 'm6':
+
+            cols = ['vol_series_daily', 'vol_series_weekly', 'vol_series_monthly',
+                'buzz','ESG','ESGCombined','ESGControversies','EnvironmentalPillar','GovernancePillar','SocialPillar','Community',
+                    'EnvironmentalInnovation','Management','ProductResponsibility','Shareholders','Workforce']
+            
+            cols.extend(noise_variable)
+            cols.extend(['V^YZ'])
+            
             # sequential feature selection with basis version 2
             # cols = self.features_selections(features = 'm3', feature_version = 2)
             # cols = self.sequential_feature_selection(cols)
@@ -281,37 +320,6 @@ class RunModels():
 
         self.cols = cols
         return cols
-
-    # def vis_line_plot_results(self, y_pred, y_test, name, r):
-
-    #     dictionaries = {
-    #         'EN': 'Elastic Net',
-    #         'RF': 'Random Forest',
-    #         'LSTM': 'Long Short-Term Memory',
-    #         'HAR': 'Heterogeneous AutoRegressive',
-    #         'GARCH': 'Generalised AutoRegressive Conditional Heteroskedasticity'
-    #     }
-
-    #     algorithms = self.algorithms
-    #     features = self.features
-
-    #     plt.figure(figsize=(10,4))
-    #     true, = plt.plot(y_test, alpha = 0.7, color = 'black')
-    #     preds, = plt.plot(y_pred, marker='.')
-
-    #     plt.title(f'{dictionaries[algorithms]} Prediction on "{name}" |Data:{features}|', fontsize=12)
-    #     plt.legend(['True Volatility', 'Predicted Volatility'], fontsize=9)
-
-    #     # Add horizontal grid lines
-    #     plt.grid(axis='y', alpha=0.5)
-
-    #     # Add labels to the axes
-    #     plt.xlabel('Date Key', fontsize=9)
-    #     plt.ylabel('Volatility', fontsize=9)
-    #     plt.xticks(rotation=0)
-
-    #     plt.savefig(f'../outputs/{algorithms}-{features}/{str(r+1).zfill(3)}-{algorithms}-{name}.png')
-    #     plt.close()
 
     def vis_line_plot_results(self, y_pred, y_test, name, r):
 
@@ -435,7 +443,7 @@ class RunModels():
                        cap = False, target = 'V^YZ', test_perc = .3):
 
         predict_days = self.predict_days
-        n_in = 3
+        n_in = 5
 
         df_train = train_df[train_df.Asset == asset][cols].dropna()
         df_test = test_df[test_df.Asset == asset][cols].dropna()
@@ -454,6 +462,7 @@ class RunModels():
 
         df_merge = series_to_supervised(df_merge, n_in=n_in, target= [target])
         print(f'Execute Training and Walk Forward Testing for ({name}-{str(asset)}) for {predict_days} times..')
+        # display(df_merge)
 
         start_time = time.time()
         y_test, y_pred, mse = self.walk_forward_validation(df_merge, predict_days, algorithm)
