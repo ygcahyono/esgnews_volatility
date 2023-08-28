@@ -33,6 +33,17 @@ class DataProcessing():
         self.esg_path = esg_path
         self.daily = daily
 
+    # Define function to generate noise
+    def generate_noise(self, T, beta, gamma, RV):
+        epsilon = np.random.randn(T)
+        omega = gamma * RV.std() * np.sqrt(1 - beta**2)
+        u = np.zeros(T)
+        
+        for t in range(1, T):
+            u[t] = beta * u[t-1] + omega * epsilon[t]
+            
+        return u
+
     def count_train_test(self, train_df, test_df):
         master_df = pd.DataFrame()
 
@@ -196,6 +207,33 @@ class DataProcessing():
 
         self.esg_df = esg_df
 
+    def generate_noise_robustness(self, stop = 10):
+        # Noise generation calibrations
+        df = self.clean_df.copy()
+        betas = [0.0, 0.5, 0.75, 0.90]
+        gammas = [0.25, 0.50, 1.00]
+        master_df = pd.DataFrame()
+        
+        for asset in df.Asset.unique():
+            sub_df = df[df['Asset'] == asset]
+            T = sub_df.shape[0]
+
+            RV = sub_df['V^YZ']
+            cnt = 0
+            for beta in betas:
+                for gamma in gammas:
+                    sub_df[f'noise_beta_{beta}_gamma_{gamma}'] = self.generate_noise(T, beta, gamma, RV)
+                    cnt+=1
+                    if cnt == stop:
+                        break
+                if cnt == stop:
+                    break
+                    
+                    
+            master_df = pd.concat([master_df, sub_df])
+        
+        self.clean_df = master_df
+
     def func_train_test_split(self):
         '''
         '''
@@ -331,6 +369,7 @@ class DataProcessing():
 
         self.clean_df = clean_df
 
+        self.generate_noise_robustness()
         train_df, test_df = self.func_train_test_split()
         
         return clean_df, train_df, test_df
