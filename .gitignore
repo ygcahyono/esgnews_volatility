@@ -7,8 +7,10 @@
 *.gdoc
 *.gsheet
 *_old.py
+*_old.ipynb
 *.pdf
 *.docx
+*/developments/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
